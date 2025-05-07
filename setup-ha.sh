@@ -7,19 +7,26 @@ set -euo pipefail
 #  - Docker Compose (MariaDB Galera + Nginx Proxy Manager)
 #  - Keepalived (Floating IP failover)
 #  - Syncthing (Bidirectional sync of /opt/npm-data)
-# Usage: ./setup-ha.sh  (prompts for any missing vars)
+# Usage: export VAR=... && ./setup-ha.sh  (alle Variablen müssen gesetzt sein)
 # =============================================================
 
 # 1) Prompt for required variables if unset
-vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS)
+vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS \
+      DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD)
 prompts=(
   "this host’s IP (e.g. 10.0.0.2)"
   "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)"
   "floating IP (e.g. 10.0.0.100)"
   "Keepalived role: MASTER or BACKUP"
-  "VRRP priority (MASTER > BACKUP)"
+  "VRRP priority (MASTER > BACKUP) (use 150 for MASTER and 100 for BACKUP)"
   "this host’s Syncthing Device ID"
   "peer Syncthing Device IDs, comma-separated"
+  "MariaDB root password (keine Default-Werte)"
+  "MariaDB user name (keine Default-Werte)"
+  "MariaDB user password (keine Default-Werte)"
+  "MariaDB database name (keine Default-Werte)"
+  "Galera cluster name (keine Default-Werte)"
+  "XtraBackup password for SST (keine Default-Werte)"
 )
 for i in "${!vars[@]}"; do
   v=${vars[i]}
@@ -30,21 +37,13 @@ for i in "${!vars[@]}"; do
   fi
 done
 
-# 2) Database defaults (override via env if needed)
-: "${DB_ROOT_PASS:=rootPass}"
-: "${DB_USER:=npm}"
-: "${DB_USER_PASS:=npmPass}"
-: "${DB_NAME:=npm}"
-: "${CLUSTER_NAME:=npm-galera}"
-: "${XTRABACKUP_PASSWORD:=xbckPass}"
-
-# 3) Paths
+# 2) Paths
 DATA_DIR="/opt/npm-data"
 MYSQL_CONF_DIR="/etc/mysql/conf.d"
 KEEPALIVED_CONF_DIR="/etc/keepalived"
 SYNCTHING_CONF_DIR="/root/.config/syncthing"
 
-# 4) Install dependencies
+# 3) Install dependencies
 echo "==> Installing dependencies..."
 apt update && apt install -y \
   docker.io \
@@ -65,10 +64,10 @@ systemctl enable docker
 systemctl enable keepalived
 systemctl enable syncthing@root
 
-# 5) Create directories
+# 4) Create directories
 mkdir -p "$DATA_DIR" "$MYSQL_CONF_DIR" "$KEEPALIVED_CONF_DIR" "$SYNCTHING_CONF_DIR"
 
-# 6) Generate docker-compose.yml
+# 5) Generate docker-compose.yml
 echo "==> Generating docker-compose.yml..."
 cat >docker-compose.yml <<EOF
 version: "3.8"
@@ -77,9 +76,9 @@ services:
     image: mariadb:10.5
     container_name: npm-db
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
-      CLUSTER_NAME: ${CLUSTER_NAME}
-      XTRABACKUP_PASSWORD: ${XTRABACKUP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: \${DB_ROOT_PASS}
+      CLUSTER_NAME: \${CLUSTER_NAME}
+      XTRABACKUP_PASSWORD: \${XTRABACKUP_PASSWORD}
     volumes:
       - galera-data:/var/lib/mysql
     networks:
@@ -92,11 +91,11 @@ services:
       - mariadb
     environment:
       DB_MYSQL_HOST: mariadb
-      DB_MYSQL_USER: ${DB_USER}
-      DB_MYSQL_PASSWORD: ${DB_USER_PASS}
-      DB_MYSQL_NAME: ${DB_NAME}
+      DB_MYSQL_USER: \${DB_USER}
+      DB_MYSQL_PASSWORD: \${DB_USER_PASS}
+      DB_MYSQL_NAME: \${DB_NAME}
     volumes:
-      - ${DATA_DIR}:/data
+      - \${DATA_DIR}:/data
     ports:
       - "80:80"
       - "443:443"
@@ -112,72 +111,72 @@ volumes:
   galera-data:
 EOF
 
-# 7) Generate Galera config
+# 6) Generate Galera config
 echo "==> Generating Galera config..."
-cat >${MYSQL_CONF_DIR}/galera.cnf <<EOF
+cat >\${MYSQL_CONF_DIR}/galera.cnf <<EOF
 [mysqld]
 wsrep_on=ON
 wsrep_provider=/usr/lib/galera/libgalera_smm.so
-wsrep_cluster_address="gcomm://${HOST_IP},${PEER_IPS}"
-wsrep_cluster_name="${CLUSTER_NAME}"
-wsrep_node_address="${HOST_IP}"
+wsrep_cluster_address="gcomm://\${HOST_IP},\${PEER_IPS}"
+wsrep_cluster_name="\${CLUSTER_NAME}"
+wsrep_node_address="\${HOST_IP}"
 wsrep_node_name="cloud-proxy-$(hostname)"
 wsrep_sst_method=xtrabackup-v2
 EOF
 
-# 8) Generate Keepalived config
+# 7) Generate Keepalived config
 echo "==> Generating Keepalived config..."
-cat >${KEEPALIVED_CONF_DIR}/keepalived.conf <<EOF
+cat >\${KEEPALIVED_CONF_DIR}/keepalived.conf <<EOF
 vrrp_instance VI_1 {
     interface eth0
-    state ${ROLE}
+    state \${ROLE}
     virtual_router_id 51
-    priority ${PRIORITY}
+    priority \${PRIORITY}
     advert_int 1
     authentication {
         auth_type PASS
         auth_pass securepass
     }
     virtual_ipaddress {
-        ${FLOATING_IP}
+        \${FLOATING_IP}
     }
 }
 EOF
 
-# 9) Generate Syncthing config
+# 8) Generate Syncthing config
 echo "==> Generating Syncthing config..."
-cat >${SYNCTHING_CONF_DIR}/config.xml <<EOF
+cat >\${SYNCTHING_CONF_DIR}/config.xml <<EOF
 <configuration version="32">
-  <device id="${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
+  <device id="\${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
 EOF
-IFS=',' read -ra PIDS <<<"${SYNCTHING_PEER_DEVICE_IDS}"
-for pid in "${PIDS[@]}"; do
-  cat >>${SYNCTHING_CONF_DIR}/config.xml <<EOF
-  <device id="${pid}" introducedBy="" />
+IFS=',' read -ra PIDS <<<"\${SYNCTHING_PEER_DEVICE_IDS}"
+for pid in "\${PIDS[@]}"; do
+  cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+  <device id="\${pid}" introducedBy="" />
 EOF
-done
-cat >>${SYNCTHING_CONF_DIR}/config.xml <<EOF
-  <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
+end_done
+cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+  <folder id="npm-data" label="npm-data" path="\${DATA_DIR}" type="sendreceive">
 EOF
-for pid in "${PIDS[@]}"; do
-  cat >>${SYNCTHING_CONF_DIR}/config.xml <<EOF
-    <device id="${pid}" introducedBy="" />
+for pid in "\${PIDS[@]}"; do
+  cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+    <device id="\${pid}" introducedBy="" />
 EOF
-done
-cat >>${SYNCTHING_CONF_DIR}/config.xml <<EOF
+end_done
+cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
     <ignoreDelete>false</ignoreDelete>
     <rescanIntervalS>60</rescanIntervalS>
   </folder>
 </configuration>
 EOF
 
-# 10) Generate README.md
+# 9) Generate README.md
 echo "==> Generating README.md..."
 cat >README.md <<EOF
 # Cloud-Proxy HA Setup
 
 This directory contains everything needed to stand up a two-node, high-availability
-Nginx Proxy Manager cluster.  Configs are generated by **setup-ha.sh**:
+Nginx Proxy Manager cluster. Configs are generated by **setup-ha.sh**:
 
 - **MariaDB Galera Cluster**  
 - **Keepalived** for floating-IP failover  
@@ -201,71 +200,55 @@ Source repo: https://github.com/jsbrain/cloud-proxy.git
    \`\`\`bash
    git clone https://github.com/jsbrain/cloud-proxy.git
    cd cloud-proxy
-   \`\`\`
+   \`\`\`  
 2. Make script executable and run it:  
    \`\`\`bash
    chmod +x setup-ha.sh
    ./setup-ha.sh
    \`\`\`
-3. Bring up stack and services:  
-   \`\`\`bash
-   docker-compose up -d
-   systemctl restart keepalived
-   systemctl restart syncthing@root
-   \`\`\`
 
 ---
 
-## Management & Monitoring
+## Beispiel: Alle Variablen per Umgebungsvariable setzen
 
-### Docker Compose
-\`\`\`bash
-docker-compose ps               # service status
-docker-compose logs npm-app     # NPM logs
-docker-compose logs npm-db      # MariaDB logs
-\`\`\`
+Vor dem Ausführen müssen alle Variablen exportiert werden, um Eingabeaufforderungen zu vermeiden:
 
-### Keepalived
 \`\`\`bash
-systemctl status keepalived       # VRRP status
-journalctl -u keepalived -f       # live VRRP logs
-grep VRRP /var/log/syslog         # VRRP events in syslog
-\`\`\`
-
-### Syncthing
-\`\`\`bash
-systemctl status syncthing@root   # sync service status
-journalctl -u syncthing@root -f   # live sync logs
-syncthing cli config devices list # list peers
-\`\`\`
-
-### Galera Cluster
-\`\`\`bash
-docker exec -it npm-db mysql -uroot -p"\${DB_ROOT_PASS}" \\
-  -e "SHOW STATUS LIKE 'wsrep_cluster_size';"
-docker exec -it npm-db mysql -uroot -p"\${DB_ROOT_PASS}" \\
-  -e "SHOW STATUS LIKE 'wsrep_local_state_comment';"
+export HOST_IP=10.0.0.2
+export PEER_IPS="10.0.0.2,10.0.0.3"
+export FLOATING_IP=10.0.0.100
+export ROLE=MASTER
+export PRIORITY=150
+export SYNCTHING_DEVICE_ID=ABCDEF1234567890
+export SYNCTHING_PEER_DEVICE_IDS="ID1,ID2"
+export DB_ROOT_PASS="secureRootPass"
+export DB_USER="npmuser"
+export DB_USER_PASS="secureUserPass"
+export DB_NAME="npmdb"
+export CLUSTER_NAME="npm-galera"
+export XTRABACKUP_PASSWORD="secureXbckPass"
+./setup-ha.sh
 \`\`\`
 
 ---
 
 ## Environment Variables
 
-| Variable                  | Description                                  | Example                  |
-| ------------------------- | -------------------------------------------- | ------------------------ |
-| \`HOST_IP\`               | this host’s IP                               | \`10.0.0.2\`             |
-| \`PEER_IPS\`              | comma-separated peer IPs                     | \`10.0.0.2,10.0.0.3\`    |
-| \`FLOATING_IP\`           | VRRP floating IP                             | \`10.0.0.100\`           |
-| \`ROLE\`                  | Keepalived role (\`MASTER\` or \`BACKUP\`)    | \`MASTER\`               |
-| \`PRIORITY\`              | VRRP priority (higher wins)                  | \`150\`                  |
-| \`SYNCTHING_DEVICE_ID\`   | this host’s Syncthing Device ID              | \`ABCDEF1234567890\`     |
-| \`SYNCTHING_PEER_DEVICE_IDS\` | comma-separated peer Syncthing IDs        | \`ID1,ID2\`              |
-| \`DB_ROOT_PASS\`          | MariaDB root password                        | \`rootPass\`             |
-| \`DB_USER\`               | MariaDB user                                 | \`npm\`                  |
-| \`DB_USER_PASS\`          | MariaDB user password                        | \`npmPass\`              |
-| \`DB_NAME\`               | MariaDB database name                        | \`npm\`                  |
-| \`CLUSTER_NAME\`          | Galera cluster name                          | \`npm-galera\`           |
-| \`XTRABACKUP_PASSWORD\`   | XtraBackup password for SST                  | \`xbckPass\`             |
+| Variable                  | Beschreibung                             |
+| ------------------------- | ---------------------------------------- |
+| \`HOST_IP\`               | this host’s IP                           |
+| \`PEER_IPS\`              | comma-separated peer IPs                 |
+| \`FLOATING_IP\`           | VRRP floating IP                         |
+| \`ROLE\`                  | Keepalived role (\`MASTER\` oder \`BACKUP\`) |
+| \`PRIORITY\`              | VRRP priority (höher gewinnt)            |
+| \`SYNCTHING_DEVICE_ID\`   | this host’s Syncthing Device ID          |
+| \`SYNCTHING_PEER_DEVICE_IDS\` | comma-separated peer Syncthing IDs     |
+| \`DB_ROOT_PASS\`          | MariaDB root password (erforderlich)     |
+| \`DB_USER\`               | MariaDB user name (erforderlich)         |
+| \`DB_USER_PASS\`          | MariaDB user password (erforderlich)     |
+| \`DB_NAME\`               | MariaDB database name (erforderlich)     |
+| \`CLUSTER_NAME\`          | Galera cluster name (erforderlich)       |
+| \`XTRABACKUP_PASSWORD\`   | XtraBackup password for SST (erforderlich)|
 
 EOF
 
