@@ -183,7 +183,7 @@ done
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
-    <rescanIntervalS>0</rescanIntervalS>
+    <rescanIntervalS>1</rescanIntervalS>
   </folder>
 EOF
 # letsencrypt folder
@@ -198,7 +198,7 @@ done
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
-    <rescanIntervalS>0</rescanIntervalS>
+    <rescanIntervalS>1</rescanIntervalS>
   </folder>
 </configuration>
 EOF
