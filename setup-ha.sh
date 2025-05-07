@@ -12,54 +12,47 @@ set -euo pipefail
 
 # 1) Prompt for required variables if unset
 vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS
-  DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD LETSENCRYPT_DIR)
+  DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD LETSENCRYPT_DIR PUID PGID)
 prompts=(
-  "this host’s IP (e.g. 10.0.0.2)"
-  "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)"
-  "floating IP (e.g. 10.0.0.100)"
-  "Keepalived role: MASTER or BACKUP"
-  "VRRP priority (MASTER > BACKUP) (use 150 for MASTER and 100 for BACKUP)"
-  "this host’s Syncthing Device ID"
-  "peer Syncthing Device IDs, comma-separated"
-  "MariaDB root password (keine Default-Werte)"
-  "MariaDB user name (keine Default-Werte)"
-  "MariaDB user password (keine Default-Werte)"
-  "MariaDB database name (keine Default-Werte)"
-  "Galera cluster name (keine Default-Werte)"
-  "XtraBackup password for SST (keine Default-Werte)"
-  "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)"
+  "this host’s IP (e.g. 10.0.0.2)",
+  "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)",
+  "floating IP (e.g. 10.0.0.100)",
+  "Keepalived role: MASTER or BACKUP",
+  "VRRP priority (use 150 for MASTER, 100 for BACKUP)",
+  "this host’s Syncthing Device ID",
+  "peer Syncthing Device IDs, comma-separated",
+  "MariaDB root password (no defaults)",
+  "MariaDB user name (no defaults)",
+  "MariaDB user password (no defaults)",
+  "MariaDB database name (no defaults)",
+  "Galera cluster name (no defaults)",
+  "XtraBackup password for SST (no defaults)",
+  "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)",
+  "user ID for NPM container (PUID, e.g. 1000)",
+  "group ID for NPM container (PGID, e.g. 1000)"
 )
 for i in "${!vars[@]}"; do
-  v=${vars[i]}
-  p=${prompts[i]}
-  if [ -z "${!v:-}" ]; then
-    read -rp "Enter ${v} (${p}): " "$v"
-    export "$v"
+  var_name=${vars[i]}
+  prompt=${prompts[i]}
+  if [ -z "${!var_name:-}" ]; then
+    read -rp "Enter ${var_name} (${prompt}): " value
+    export ${var_name}="$value"
   fi
 done
 
-# 2) Paths
+# 2) Define constant paths
 DATA_DIR="/opt/npm-data"
 MYSQL_CONF_DIR="/etc/mysql/conf.d"
 KEEPALIVED_CONF_DIR="/etc/keepalived"
 SYNCTHING_CONF_DIR="/root/.config/syncthing"
 
-# 3) Install dependencies
+# 3) Install system dependencies (skip Docker)
 echo "==> Installing system dependencies..."
-# Docker already installed on hosts, skip docker packages
 apt update && apt install -y \
-  keepalived \
-  syncthing \
-  curl \
-  jq \
-  apt-transport-https \
-  ca-certificates \
-  gnupg
+  keepalived syncthing curl jq apt-transport-https ca-certificates gnupg
 
-# ——————————————————————————————————————————————
-# Install Hetzner Cloud CLI from GitHub Releases
-# ——————————————————————————————————————————————
-echo "==> Installing hcloud CLI from GitHub Releases…"
+# 4) Install Hetzner Cloud CLI from GitHub Releases
+echo "==> Installing hcloud CLI..."
 HCL_REL=$(curl -s https://api.github.com/repos/hetznercloud/cli/releases/latest | jq -r .tag_name)
 ARCH="linux-amd64"
 URL="https://github.com/hetznercloud/cli/releases/download/${HCL_REL}/hcloud-${ARCH}.tar.gz"
@@ -70,14 +63,22 @@ chmod +x /usr/local/bin/hcloud
 rm hcloud.tar.gz LICENSE
 hcloud version
 
-# Enable services
+# 5) Enable services
+echo "==> Enabling keepalived and syncthing services..."
 systemctl enable keepalived
 systemctl enable syncthing@root
 
-# 4) Create directories
-mkdir -p "$DATA_DIR" "$MYSQL_CONF_DIR" "$KEEPALIVED_CONF_DIR" "$SYNCTHING_CONF_DIR"
+# 6) Prepare directories and DB init script
+echo "==> Preparing directories and database init..."
+mkdir -p "$DATA_DIR" "$MYSQL_CONF_DIR" "$KEEPALIVED_CONF_DIR" "$SYNCTHING_CONF_DIR" db-init
+cat >db-init/init.sql <<EOF
+CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\`;
+CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_USER_PASS}';
+GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
+FLUSH PRIVILEGES;
+EOF
 
-# 5) Generate docker-compose.yml
+# 7) Generate docker-compose.yml
 echo "==> Generating docker-compose.yml..."
 cat >docker-compose.yml <<EOF
 services:
@@ -85,11 +86,12 @@ services:
     image: mariadb:10.5
     container_name: npm-db
     environment:
-      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
-      CLUSTER_NAME: ${CLUSTER_NAME}
-      XTRABACKUP_PASSWORD: ${XTRABACKUP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASS}"
+      CLUSTER_NAME: "${CLUSTER_NAME}"
+      XTRABACKUP_PASSWORD: "${XTRABACKUP_PASSWORD}"
     volumes:
       - galera-data:/var/lib/mysql
+      - ./db-init:/docker-entrypoint-initdb.d
     networks:
       - galera-net
 
@@ -99,10 +101,12 @@ services:
     depends_on:
       - mariadb
     environment:
-      DB_MYSQL_HOST: mariadb
-      DB_MYSQL_USER: ${DB_USER}
-      DB_MYSQL_PASSWORD: ${DB_USER_PASS}
-      DB_MYSQL_NAME: ${DB_NAME}
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - DB_MYSQL_HOST=mariadb
+      - DB_MYSQL_USER=${DB_USER}
+      - DB_MYSQL_PASSWORD=${DB_USER_PASS}
+      - DB_MYSQL_NAME=${DB_NAME}
     volumes:
       - "${DATA_DIR}:/data"
       - "${LETSENCRYPT_DIR}:/etc/letsencrypt"
@@ -121,11 +125,11 @@ volumes:
   galera-data:
 EOF
 
-# 6) Start Docker stack
+# 8) Deploy stack
 echo "==> Starting Docker Compose stack..."
 docker compose up -d
 
-# 7) Generate Galera config
+# 9) Generate Galera config
 echo "==> Generating Galera config..."
 cat >"${MYSQL_CONF_DIR}/galera.cnf" <<EOF
 [mysqld]
@@ -138,44 +142,39 @@ wsrep_node_name="cloud-proxy-$(hostname)"
 wsrep_sst_method=xtrabackup-v2
 EOF
 
-# 8) Generate Keepalived config
+# 10) Generate Keepalived config
 echo "==> Generating Keepalived config..."
 cat >"${KEEPALIVED_CONF_DIR}/keepalived.conf" <<EOF
 vrrp_instance VI_1 {
-    interface eth0
-    state ${ROLE}
-    virtual_router_id 51
-    priority ${PRIORITY}
-    advert_int 1
-    authentication {
-        auth_type PASS
-        auth_pass securepass
-    }
-    virtual_ipaddress {
-        ${FLOATING_IP}
-    }
+  interface eth0
+  state ${ROLE}
+  virtual_router_id 51
+  priority ${PRIORITY}
+  advert_int 1
+  authentication {
+    auth_type PASS
+    auth_pass securepass
+  }
+  virtual_ipaddress {
+    ${FLOATING_IP}
+  }
 }
 EOF
 
-# 9) Generate Syncthing config
+# 11) Generate Syncthing config
 echo "==> Generating Syncthing config..."
 cat >"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
 <configuration version="32">
   <device id="${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
 EOF
 IFS=',' read -ra PIDS <<<"${SYNCTHING_PEER_DEVICE_IDS}"
-for pid in "${PIDS[@]}"; do
-  cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
-  <device id="${pid}" introducedBy="" />
-EOF
-done
+# npm-data folder
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
-  <!-- Sync npm-data folder -->
   <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
 EOF
 for pid in "${PIDS[@]}"; do
   cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
-    <device id="${pid}" introducedBy="" />
+    <device id="${pid}" />
 EOF
 done
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
@@ -183,13 +182,13 @@ cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
     <rescanIntervalS>60</rescanIntervalS>
   </folder>
 EOF
+# letsencrypt folder
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
-  <!-- Sync Let’s Encrypt certs -->
   <folder id="letsencrypt" label="letsencrypt" path="${LETSENCRYPT_DIR}" type="sendreceive">
 EOF
 for pid in "${PIDS[@]}"; do
   cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
-    <device id="${pid}" introducedBy="" />
+    <device id="${pid}" />
 EOF
 done
 cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
@@ -258,6 +257,8 @@ export DB_NAME="npmdb"
 export CLUSTER_NAME="npm-galera"
 export XTRABACKUP_PASSWORD="secureXbckPass"
 export LETSENCRYPT_DIR="/etc/letsencrypt"
+export PUID=1000
+export PGID=1000
 ./setup-ha.sh
 \`\`\`
 
@@ -281,6 +282,8 @@ export LETSENCRYPT_DIR="/etc/letsencrypt"
 | \`CLUSTER_NAME\`                | Galera cluster name (erforderlich)             |
 | \`XTRABACKUP_PASSWORD\`         | XtraBackup password for SST (erforderlich)     |
 | \`LETSENCRYPT_DIR\`             | host path to Let’s Encrypt data (erforderlich) |
+| \`PUID\`                        | user ID for NPM container (PUID, e.g. 1000)    |
+| \`PGID\`                        | group ID for NPM container (PGID, e.g. 1000)    |
 
 EOF
 
