@@ -88,9 +88,9 @@ services:
     image: mariadb:10.5
     container_name: npm-db
     environment:
-      MYSQL_ROOT_PASSWORD: \${DB_ROOT_PASS}
-      CLUSTER_NAME: \${CLUSTER_NAME}
-      XTRABACKUP_PASSWORD: \${XTRABACKUP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASS}
+      CLUSTER_NAME: ${CLUSTER_NAME}
+      XTRABACKUP_PASSWORD: ${XTRABACKUP_PASSWORD}
     volumes:
       - galera-data:/var/lib/mysql
     networks:
@@ -103,11 +103,11 @@ services:
       - mariadb
     environment:
       DB_MYSQL_HOST: mariadb
-      DB_MYSQL_USER: \${DB_USER}
-      DB_MYSQL_PASSWORD: \${DB_USER_PASS}
-      DB_MYSQL_NAME: \${DB_NAME}
+      DB_MYSQL_USER: ${DB_USER}
+      DB_MYSQL_PASSWORD: ${DB_USER_PASS}
+      DB_MYSQL_NAME: ${DB_NAME}
     volumes:
-      - \${DATA_DIR}:/data
+      - ${DATA_DIR}:/data
     ports:
       - "80:80"
       - "443:443"
