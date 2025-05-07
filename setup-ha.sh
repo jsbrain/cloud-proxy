@@ -7,28 +7,28 @@ set -euo pipefail
 #  - Docker Compose (MariaDB Galera + Nginx Proxy Manager)
 #  - Keepalived (Floating IP failover)
 #  - Syncthing (Bidirectional sync of /opt/npm-data and Let’s Encrypt certs)
-# Usage: export VAR=... && ./setup-ha.sh  (alle Variablen müssen gesetzt sein)
+# Usage: export VAR=... && ./setup-ha.sh  (all variables must be set)
 # =============================================================
 
 # 1) Prompt for required variables if unset
 vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS
   DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD LETSENCRYPT_DIR PUID PGID)
 prompts=(
-  "this host’s IP (e.g. 10.0.0.2)",
-  "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)",
-  "floating IP (e.g. 10.0.0.100)",
-  "Keepalived role: MASTER or BACKUP",
-  "VRRP priority (use 150 for MASTER, 100 for BACKUP)",
-  "this host’s Syncthing Device ID",
-  "peer Syncthing Device IDs, comma-separated",
-  "MariaDB root password (no defaults)",
-  "MariaDB user name (no defaults)",
-  "MariaDB user password (no defaults)",
-  "MariaDB database name (no defaults)",
-  "Galera cluster name (no defaults)",
-  "XtraBackup password for SST (no defaults)",
-  "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)",
-  "user ID for NPM container (PUID, e.g. 1000)",
+  "this host’s IP (e.g. 10.0.0.2)"
+  "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)"
+  "floating IP (e.g. 10.0.0.100)"
+  "Keepalived role: MASTER or BACKUP"
+  "VRRP priority (use 150 for MASTER, 100 for BACKUP)"
+  "this host’s Syncthing Device ID"
+  "peer Syncthing Device IDs, comma-separated"
+  "MariaDB root password (no defaults)"
+  "MariaDB user name (no defaults)"
+  "MariaDB user password (no defaults)"
+  "MariaDB database name (no defaults)"
+  "Galera cluster name (no defaults)"
+  "XtraBackup password for SST (no defaults)"
+  "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)"
+  "user ID for NPM container (PUID, e.g. 1000)"
   "group ID for NPM container (PGID, e.g. 1000)"
 )
 for i in "${!vars[@]}"; do
@@ -78,13 +78,17 @@ GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
 FLUSH PRIVILEGES;
 EOF
 
-# 7) Generate docker-compose.yml
+# 7) Generate docker-compose.yml (with local MariaDB port)
 echo "==> Generating docker-compose.yml..."
 cat >docker-compose.yml <<EOF
+version: '3.8'
+
 services:
   mariadb:
     image: mariadb:10.5
     container_name: npm-db
+    ports:
+      - "127.0.0.1:3306:3306"
     environment:
       MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASS}"
       CLUSTER_NAME: "${CLUSTER_NAME}"
@@ -198,7 +202,7 @@ cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
 </configuration>
 EOF
 
-# 10) Generate README.md
+# 12) Generate README.md
 echo "==> Generating README.md..."
 cat >README.md <<EOF
 # Cloud-Proxy HA Setup
