@@ -60,18 +60,14 @@ apt update && apt install -y \
 # Install Hetzner Cloud CLI from GitHub Releases
 # ——————————————————————————————————————————————
 echo "==> Installing hcloud CLI from GitHub Releases…"
-# 1. Fetch latest tag name
 HCL_REL=$(curl -s https://api.github.com/repos/hetznercloud/cli/releases/latest | jq -r .tag_name)
-# 2. Define architecture and download URL
 ARCH="linux-amd64"
 URL="https://github.com/hetznercloud/cli/releases/download/${HCL_REL}/hcloud-${ARCH}.tar.gz"
-# 3. Download, extract, and install
 curl -L "$URL" -o hcloud.tar.gz
 tar xzf hcloud.tar.gz
 mv hcloud /usr/local/bin/hcloud
 chmod +x /usr/local/bin/hcloud
 rm hcloud.tar.gz LICENSE
-# 4. Verify installation
 hcloud version
 
 # Enable services
@@ -109,7 +105,7 @@ services:
       DB_MYSQL_NAME: ${DB_NAME}
     volumes:
       - "${DATA_DIR}:/data"
-      - "${LETSENCRYPT_DIR}:/etc/letsencrypt:ro"
+      - "${LETSENCRYPT_DIR}:/etc/letsencrypt"
     ports:
       - "80:80"
       - "443:443"
