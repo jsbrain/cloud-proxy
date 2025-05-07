@@ -126,57 +126,57 @@ EOF
 
 # 6) Generate Galera config
 echo "==> Generating Galera config..."
-cat >\${MYSQL_CONF_DIR}/galera.cnf <<EOF
+cat >"${MYSQL_CONF_DIR}/galera.cnf" <<EOF
 [mysqld]
 wsrep_on=ON
 wsrep_provider=/usr/lib/galera/libgalera_smm.so
-wsrep_cluster_address="gcomm://\${HOST_IP},\${PEER_IPS}"
-wsrep_cluster_name="\${CLUSTER_NAME}"
-wsrep_node_address="\${HOST_IP}"
+wsrep_cluster_address="gcomm://${HOST_IP},${PEER_IPS}"
+wsrep_cluster_name="${CLUSTER_NAME}"
+wsrep_node_address="${HOST_IP}"
 wsrep_node_name="cloud-proxy-$(hostname)"
 wsrep_sst_method=xtrabackup-v2
 EOF
 
 # 7) Generate Keepalived config
 echo "==> Generating Keepalived config..."
-cat >\${KEEPALIVED_CONF_DIR}/keepalived.conf <<EOF
+cat >"${KEEPALIVED_CONF_DIR}/keepalived.conf" <<EOF
 vrrp_instance VI_1 {
     interface eth0
-    state \${ROLE}
+    state ${ROLE}
     virtual_router_id 51
-    priority \${PRIORITY}
+    priority ${PRIORITY}
     advert_int 1
     authentication {
         auth_type PASS
         auth_pass securepass
     }
     virtual_ipaddress {
-        \${FLOATING_IP}
+        ${FLOATING_IP}
     }
 }
 EOF
 
 # 8) Generate Syncthing config
 echo "==> Generating Syncthing config..."
-cat >\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+cat >"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
 <configuration version="32">
-  <device id="\${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
+  <device id="${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
 EOF
-IFS=',' read -ra PIDS <<<"\${SYNCTHING_PEER_DEVICE_IDS}"
+IFS=',' read -ra PIDS <<<"${SYNCTHING_PEER_DEVICE_IDS}"
 for pid in "${PIDS[@]}"; do
-  cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+  cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
   <device id="${pid}" introducedBy="" />
 EOF
 done
-cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
   <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
 EOF
 for pid in "${PIDS[@]}"; do
-  cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+  cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
     <device id="${pid}" introducedBy="" />
 EOF
 done
-cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<EOF
     <ignoreDelete>false</ignoreDelete>
     <rescanIntervalS>60</rescanIntervalS>
   </folder>
