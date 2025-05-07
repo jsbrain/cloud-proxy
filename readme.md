@@ -39,19 +39,19 @@ Source repo: https://github.com/jsbrain/cloud-proxy.git
 Vor dem Ausführen müssen alle Variablen exportiert werden, um Eingabeaufforderungen zu vermeiden:
 
 ```bash
-export HOST_IP=10.0.0.2
-export PEER_IPS="10.0.0.2,10.0.0.3"
-export FLOATING_IP=10.0.0.100
-export ROLE=MASTER
-export PRIORITY=150
-export SYNCTHING_DEVICE_ID=ABCDEF1234567890
-export SYNCTHING_PEER_DEVICE_IDS="ID1,ID2"
-export DB_ROOT_PASS="secureRootPass"
-export DB_USER="npmuser"
-export DB_USER_PASS="secureUserPass"
-export DB_NAME="npmdb"
-export CLUSTER_NAME="npm-galera"
-export XTRABACKUP_PASSWORD="secureXbckPass"
+export HOST_IP='10.0.0.2'
+export PEER_IPS='10.0.0.2,10.0.0.3'
+export FLOATING_IP='10.0.0.100'
+export ROLE='MASTER'
+export PRIORITY='150'
+export SYNCTHING_DEVICE_ID='ABCDEF1234567890'
+export SYNCTHING_PEER_DEVICE_IDS='ID1,ID2'
+export DB_ROOT_PASS='secureRootPass'
+export DB_USER='npmuser'
+export DB_USER_PASS='secureUserPass'
+export DB_NAME='npmdb'
+export CLUSTER_NAME='npm-galera'
+export XTRABACKUP_PASSWORD='secureXbckPass'
 ./setup-ha.sh
 ```
 
