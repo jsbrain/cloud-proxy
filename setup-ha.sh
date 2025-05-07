@@ -11,8 +11,8 @@ set -euo pipefail
 # =============================================================
 
 # 1) Prompt for required variables if unset
-vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS \
-      DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD)
+vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS
+  DB_ROOT_PASS DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD)
 prompts=(
   "this host’s IP (e.g. 10.0.0.2)"
   "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)"
@@ -45,20 +45,35 @@ SYNCTHING_CONF_DIR="/root/.config/syncthing"
 
 # 3) Install dependencies
 echo "==> Installing dependencies..."
+# Removed Docker packages; only system-level dependencies needed
 apt update && apt install -y \
   keepalived \
   syncthing \
   curl \
+  jq \
   apt-transport-https \
   ca-certificates \
   gnupg
 
-# Install Hetzner Cloud CLI
-curl -fsSL https://packages.hetzner.com/install.sh | bash
-apt install -y hcloud
+# ——————————————————————————————————————————————
+# Install Hetzner Cloud CLI from GitHub Releases
+# ——————————————————————————————————————————————
+echo "==> Installing hcloud CLI from GitHub Releases…"
+# 1. Fetch latest tag name
+HCL_REL=$(curl -s https://api.github.com/repos/hetznercloud/cli/releases/latest | jq -r .tag_name)
+# 2. Define architecture and download URL
+ARCH="linux-amd64"
+URL="https://github.com/hetznercloud/cli/releases/download/${HCL_REL}/hcloud-${ARCH}.tar.gz"
+# 3. Download, extract, and install
+curl -L "$URL" -o hcloud.tar.gz
+tar xzf hcloud.tar.gz
+mv hcloud /usr/local/bin/hcloud
+chmod +x /usr/local/bin/hcloud
+rm hcloud.tar.gz LICENSE
+# 4. Verify installation
+hcloud version
 
 # Enable services
-systemctl enable docker
 systemctl enable keepalived
 systemctl enable syncthing@root
 
@@ -148,19 +163,19 @@ cat >\${SYNCTHING_CONF_DIR}/config.xml <<EOF
   <device id="\${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
 EOF
 IFS=',' read -ra PIDS <<<"\${SYNCTHING_PEER_DEVICE_IDS}"
-for pid in "\${PIDS[@]}"; do
+for pid in "${PIDS[@]}"; do
   cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
-  <device id="\${pid}" introducedBy="" />
+  <device id="${pid}" introducedBy="" />
 EOF
-end_done
+done
 cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
-  <folder id="npm-data" label="npm-data" path="\${DATA_DIR}" type="sendreceive">
+  <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
 EOF
-for pid in "\${PIDS[@]}"; do
+for pid in "${PIDS[@]}"; do
   cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
-    <device id="\${pid}" introducedBy="" />
+    <device id="${pid}" introducedBy="" />
 EOF
-end_done
+done
 cat >>\${SYNCTHING_CONF_DIR}/config.xml <<EOF
     <ignoreDelete>false</ignoreDelete>
     <rescanIntervalS>60</rescanIntervalS>
@@ -188,7 +203,7 @@ Source repo: https://github.com/jsbrain/cloud-proxy.git
 
 - Ubuntu 20.04+ (root or sudo)  
 - Network connectivity between both hosts  
-- Hetzner Cloud CLI authenticated (\`hcloud auth login\`)  
+- Hetzner Cloud CLI authenticated (via "hcloud auth login" nach Installation)  
 
 ---
 
@@ -232,21 +247,21 @@ export XTRABACKUP_PASSWORD="secureXbckPass"
 
 ## Environment Variables
 
-| Variable                  | Beschreibung                             |
-| ------------------------- | ---------------------------------------- |
-| \`HOST_IP\`               | this host’s IP                           |
-| \`PEER_IPS\`              | comma-separated peer IPs                 |
-| \`FLOATING_IP\`           | VRRP floating IP                         |
-| \`ROLE\`                  | Keepalived role (\`MASTER\` oder \`BACKUP\`) |
-| \`PRIORITY\`              | VRRP priority (höher gewinnt)            |
-| \`SYNCTHING_DEVICE_ID\`   | this host’s Syncthing Device ID          |
-| \`SYNCTHING_PEER_DEVICE_IDS\` | comma-separated peer Syncthing IDs     |
-| \`DB_ROOT_PASS\`          | MariaDB root password (erforderlich)     |
-| \`DB_USER\`               | MariaDB user name (erforderlich)         |
-| \`DB_USER_PASS\`          | MariaDB user password (erforderlich)     |
-| \`DB_NAME\`               | MariaDB database name (erforderlich)     |
-| \`CLUSTER_NAME\`          | Galera cluster name (erforderlich)       |
-| \`XTRABACKUP_PASSWORD\`   | XtraBackup password for SST (erforderlich)|
+| Variable                      | Beschreibung                                   |
+| ----------------------------- | ---------------------------------------------- |
+| \`HOST_IP\`                     | this host’s IP                                 |
+| \`PEER_IPS\`                    | comma-separated peer IPs                       |
+| \`FLOATING_IP\`                 | VRRP floating IP                               |
+| \`ROLE\`                        | Keepalived role (\`MASTER\` oder \`BACKUP\`)    |
+| \`PRIORITY\`                    | VRRP priority (höher gewinnt)                  |
+| \`SYNCTHING_DEVICE_ID\`         | this host’s Syncthing Device ID                |
+| \`SYNCTHING_PEER_DEVICE_IDS\`   | comma-separated peer Syncthing IDs             |
+| \`DB_ROOT_PASS\`                | MariaDB root password (erforderlich)           |
+| \`DB_USER\`                     | MariaDB user name (erforderlich)               |
+| \`DB_USER_PASS\`                | MariaDB user password (erforderlich)           |
+| \`DB_NAME\`                     | MariaDB database name (erforderlich)           |
+| \`CLUSTER_NAME\`                | Galera cluster name (erforderlich)             |
+| \`XTRABACKUP_PASSWORD\`         | XtraBackup password for SST (erforderlich)     |
 
 EOF
 
