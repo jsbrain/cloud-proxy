@@ -46,8 +46,6 @@ SYNCTHING_CONF_DIR="/root/.config/syncthing"
 # 3) Install dependencies
 echo "==> Installing dependencies..."
 apt update && apt install -y \
-  docker.io \
-  docker-compose-plugin \
   keepalived \
   syncthing \
   curl \
