@@ -141,7 +141,7 @@ wsrep_provider=/usr/lib/galera/libgalera_smm.so
 wsrep_cluster_address="gcomm://${HOST_IP},${PEER_IPS}"
 wsrep_cluster_name="${CLUSTER_NAME}"
 wsrep_node_address="${HOST_IP}"
-wsrep_node_name="cloud-proxy-$(hostname)"
+wsrep_node_name="$(hostname)"
 wsrep_sst_method=xtrabackup-v2
 EOF
 
@@ -222,20 +222,20 @@ Source repo: https://github.com/jsbrain/cloud-proxy.git
 ## Voraussetzungen
 
 - Ubuntu 20.04+ (root oder sudo)  
-- Netzwerk-Konnektivität zwischen beiden Hosts  
-- Docker & Docker Compose bereits installiert  
-- Hetzner Cloud CLI authentifiziert (via "hcloud auth login")  
+- Netzwerk-Konnektivität zwischen beiden Hosts  
+- Docker & Docker Compose bereits installiert  
+- Hetzner Cloud CLI authentifiziert (via "hcloud auth login")  
 
 ---
 
 ## Kurzanleitung
 
-1. Klonen auf beiden Hosts:  
+1. Klonen auf beiden Hosts:  
    \`\`\`bash
    git clone https://github.com/jsbrain/cloud-proxy.git
    cd cloud-proxy
    \`\`\`  
-2. Skript ausführbar machen und starten:  
+2. Skript ausführbar machen und starten:  
    \`\`\`bash
    chmod +x setup-ha.sh
    ./setup-ha.sh
@@ -243,9 +243,9 @@ Source repo: https://github.com/jsbrain/cloud-proxy.git
 
 ---
 
-## Beispiel: Alle Variablen per Umgebungsvariable setzen
+## Beispiel: Alle Variablen per Umgebungsvariable setzen
 
-Vor dem Ausführen müssen alle Variablen exportiert werden, um Eingabeaufforderungen zu vermeiden:
+Vor dem Ausführen müssen alle Variablen exportiert werden, um Eingabeaufforderungen zu vermeiden:
 
 \`\`\`bash
 export HOST_IP='10.0.0.2'
@@ -270,27 +270,27 @@ export PGID='1000'
 
 ---
 
-## Environment Variables
+## Environment Variables
 
 | Variable                      | Beschreibung                                                          |
 | ----------------------------- | --------------------------------------------------------------------- |
 | \`HOST_IP\`                   | this host’s IP                                                        |
 | \`PEER_IPS\`                  | comma-separated peer IPs                                              |
 | \`FLOATING_IP\`               | VRRP floating IP                                                      |
-| \`ROLE\`                      | Keepalived role (\`MASTER\` oder \`BACKUP\`)                         |
-| \`PRIORITY\`                  | VRRP priority (höher gewinnt)                                         |
+| \`ROLE\`                      | Keepalived role (\`MASTER\` oder \`BACKUP\`)                         |
+| \`PRIORITY\`                  | VRRP priority (höher gewinnt)                                         |
 | \`SYNCTHING_DEVICE_ID\`       | this host’s Syncthing Device ID                                       |
-| \`SYNCTHING_PEER_DEVICE_IDS\` | comma-separated peer Syncthing IDs                                    |
+| \`SYNCTHING_PEER_DEVICE_IDS\` | comma-separated peer Syncthing IDs                                    |
 | \`DB_ROOT_PASS\`              | MariaDB root password (erforderlich)                                  |
-| \`DB_PORT\`                   | MariaDB port für lokale Weiterleitung (Standard: 3306)                |
+| \`DB_PORT\`                   | MariaDB port für lokale Weiterleitung (Standard: 3306)                |
 | \`DB_USER\`                   | MariaDB user name (erforderlich)                                      |
 | \`DB_USER_PASS\`              | MariaDB user password (erforderlich)                                  |
 | \`DB_NAME\`                   | MariaDB database name (erforderlich)                                  |
 | \`CLUSTER_NAME\`              | Galera cluster name (erforderlich)                                    |
 | \`XTRABACKUP_PASSWORD\`       | XtraBackup password for SST (erforderlich)                            |
-| \`LETSENCRYPT_DIR\`           | host path to Let’s Encrypt data (erforderlich)                        |
-| \`PUID\`                      | user ID for NPM container (PUID, e.g. 1000)                           |
-| \`PGID\`                      | group ID for NPM container (PGID, e.g. 1000)                          |
+| \`LETSENCRYPT_DIR\`           | host path to Let’s Encrypt data (erforderlich)                        |
+| \`PUID\`                      | user ID for NPM container (PUID, e.g. 1000)                           |
+| \`PGID\`                      | group ID for NPM container (PGID, e.g. 1000)                          |
 
 EOF
 
