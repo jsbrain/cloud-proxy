@@ -398,6 +398,4 @@ docker exec -it npm-db mysql -uroot -p"${DB_ROOT_PASS}" \
 ```
 README
 
-EOF
-
 echo "==> All done! See README.md for full details."
