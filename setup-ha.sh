@@ -161,8 +161,8 @@ DOCKERCOMPOSE
 # 9) Start HA stack
 echo "==> Starting HA stack..."
 docker compose up -d
-systemctl restart keepalived
-systemctl restart syncthing@root
+# systemctl restart keepalived
+# systemctl restart syncthing@root
 
 # 10) Generate Galera config
 echo "==> Generating Galera config..."
