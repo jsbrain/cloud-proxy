@@ -4,40 +4,44 @@ set -euo pipefail
 # =============================================================
 # HA Setup Script for cloud-proxy Hosts
 # Installs configs and README for:
-#  - Docker Compose (MariaDB Galera + Nginx Proxy Manager)
+#  - Docker Compose (using .env for variables)
+#    - MariaDB Galera
+#    - Nginx Proxy Manager
 #  - Keepalived (Floating IP failover)
 #  - Syncthing (Bidirectional sync of /opt/npm-data and Let’s Encrypt certs)
 # Usage: export VAR=... && ./setup-ha.sh
+#        or provide a .env file in repo root
 # =============================================================
 
 # 1) Prompt for required variables if unset
 vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS
-  DB_ROOT_PASS DB_PORT DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD LETSENCRYPT_DIR PUID PGID)
+  DB_ROOT_PASS DB_PORT DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD
+  LETSENCRYPT_DIR PUID PGID)
 prompts=(
   "this host’s IP (e.g. 10.0.0.2)",
   "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)",
   "floating IP (e.g. 10.0.0.100)",
   "Keepalived role: MASTER or BACKUP",
-  "VRRP priority (use 150 for MASTER, 100 for BACKUP)",
+  "VRRP priority (150=MASTER,100=BACKUP)",
   "this host’s Syncthing Device ID",
   "peer Syncthing Device IDs, comma-separated",
-  "MariaDB root password (no defaults)",
+  "MariaDB root password (required)",
   "MariaDB port to listen locally (e.g. 3306)",
-  "MariaDB user name (no defaults)",
-  "MariaDB user password (no defaults)",
-  "MariaDB database name (no defaults)",
-  "Galera cluster name (no defaults)",
-  "XtraBackup password for SST (no defaults)",
+  "MariaDB user name (required)",
+  "MariaDB user password (required)",
+  "MariaDB database name (required)",
+  "Galera cluster name (required)",
+  "XtraBackup password for SST (required)",
   "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)",
-  "user ID for NPM container (PUID, e.g. 1000)",
-  "group ID for NPM container (PGID, e.g. 1000)"
+  "user ID for NPM container (e.g. 1000)",
+  "group ID for NPM container (e.g. 1000)"
 )
 for i in "${!vars[@]}"; do
-  var_name=${vars[i]}
+  var=${vars[i]}
   prompt=${prompts[i]}
-  if [ -z "${!var_name:-}" ]; then
-    read -rp "Enter ${var_name} (${prompt}): " value
-    export ${var_name}="$value"
+  if [ -z "${!var:-}" ]; then
+    read -rp "Enter ${var} (${prompt}): " val
+    export ${var}="$val"
   fi
 done
 
@@ -49,7 +53,8 @@ SYNCTHING_CONF_DIR="/root/.config/syncthing"
 
 # 3) Install system dependencies
 echo "==> Installing system dependencies..."
-apt update && apt install -y keepalived syncthing curl jq apt-transport-https ca-certificates gnupg
+apt update && apt install -y \
+  keepalived syncthing curl jq apt-transport-https ca-certificates gnupg
 
 # 4) Install Hetzner Cloud CLI
 echo "==> Installing hcloud CLI..."
@@ -78,17 +83,41 @@ GRANT ALL PRIVILEGES ON `${DB_NAME}`.* TO '${DB_USER}'@'%';
 FLUSH PRIVILEGES;
 INITSQL
 
-# 7) Generate docker-compose.yml
+# 7) Generate .env file for Docker Compose
+echo "==> Generating .env file..."
+cat >.env <<EOF
+HOST_IP=${HOST_IP}
+PEER_IPS=${PEER_IPS}
+FLOATING_IP=${FLOATING_IP}
+ROLE=${ROLE}
+PRIORITY=${PRIORITY}
+SYNCTHING_DEVICE_ID=${SYNCTHING_DEVICE_ID}
+SYNCTHING_PEER_DEVICE_IDS=${SYNCTHING_PEER_DEVICE_IDS}
+DB_ROOT_PASS=${DB_ROOT_PASS}
+DB_PORT=${DB_PORT}
+DB_USER=${DB_USER}
+DB_USER_PASS=${DB_USER_PASS}
+DB_NAME=${DB_NAME}
+CLUSTER_NAME=${CLUSTER_NAME}
+XTRABACKUP_PASSWORD=${XTRABACKUP_PASSWORD}
+LETSENCRYPT_DIR=${LETSENCRYPT_DIR}
+PUID=${PUID}
+PGID=${PGID}
+EOF
+
+# 8) Generate docker-compose.yml using .env
 echo "==> Generating docker-compose.yml..."
 cat >docker-compose.yml <<'DOCKERCOMPOSE'
+version: '3.8'
 services:
   mariadb:
+    env_file: .env
     image: mariadb:10.5
     container_name: npm-db
     environment:
-      - MYSQL_ROOT_PASSWORD=${DB_ROOT_PASS}
-      - CLUSTER_NAME=${CLUSTER_NAME}
-      - XTRABACKUP_PASSWORD=${XTRABACKUP_PASSWORD}
+      MYSQL_ROOT_PASSWORD: "${DB_ROOT_PASS}"
+      CLUSTER_NAME: "${CLUSTER_NAME}"
+      XTRABACKUP_PASSWORD: "${XTRABACKUP_PASSWORD}"
     ports:
       - "127.0.0.1:${DB_PORT}:3306"
     volumes:
@@ -98,17 +127,18 @@ services:
       - galera-net
 
   nginx-proxy-manager:
+    env_file: .env
     image: jc21/nginx-proxy-manager:latest
     container_name: npm-app
     depends_on:
       - mariadb
     environment:
-      - PUID=${PUID}
-      - PGID=${PGID}
-      - DB_MYSQL_HOST=mariadb
-      - DB_MYSQL_USER=${DB_USER}
-      - DB_MYSQL_PASSWORD=${DB_USER_PASS}
-      - DB_MYSQL_NAME=${DB_NAME}
+      PUID: "${PUID}"
+      PGID: "${PGID}"
+      DB_MYSQL_HOST: "mariadb"
+      DB_MYSQL_USER: "${DB_USER}"
+      DB_MYSQL_PASSWORD: "${DB_USER_PASS}"
+      DB_MYSQL_NAME: "${DB_NAME}"
     volumes:
       - "${DATA_DIR}:/data"
       - "${LETSENCRYPT_DIR}:/etc/letsencrypt"
@@ -122,18 +152,19 @@ services:
 networks:
   galera-net:
     driver: bridge
-
 volumes:
   galera-data:
 DOCKERCOMPOSE
 
-# 8) Deploy stack
+# 9) Start HA stack
 echo "==> Starting Docker Compose stack..."
-docker compose up -d
+docker-compose up -d
+systemctl restart keepalived
+systemctl restart syncthing@root
 
-# 9) Generate Galera config
+# 10) Generate Galera config
 echo "==> Generating Galera config..."
-cat >"${MYSQL_CONF_DIR}/galera.cnf" <<'GALERACNF'
+cat >"${MYSQL_CONF_DIR}/galera.cnf" <<'GALERA'
 [mysqld]
 wsrep_on=ON
 wsrep_provider=/usr/lib/galera/libgalera_smm.so
@@ -142,11 +173,11 @@ wsrep_cluster_name="${CLUSTER_NAME}"
 wsrep_node_address="${HOST_IP}"
 wsrep_node_name="$(hostname)"
 wsrep_sst_method=xtrabackup-v2
-GALERACNF
+GALERA
 
-# 10) Generate Keepalived config
+# 11) Generate Keepalived config
 echo "==> Generating Keepalived config..."
-cat >"${KEEPALIVED_CONF_DIR}/keepalived.conf" <<'KEEPALIVEDCNF'
+cat >"${KEEPALIVED_CONF_DIR}/keepalived.conf" <<'KEEPALIVED'
 vrrp_instance VI_1 {
   interface eth0
   state ${ROLE}
@@ -161,44 +192,42 @@ vrrp_instance VI_1 {
     ${FLOATING_IP}
   }
 }
-KEEPALIVEDCNF
+KEEPALIVED
 
-# 11) Generate Syncthing config
+# 12) Generate Syncthing config
 echo "==> Generating Syncthing config..."
-cat >"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNCTHINGCFG'
+cat >"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNC'
 <configuration version="32">
   <device id="${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
-SYNCTHINGCFG
+SYNC
 IFS=',' read -ra PIDS <<<"${SYNCTHING_PEER_DEVICE_IDS}"
-# npm-data folder
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNCTHINGFOLDER'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_START'
   <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
-SYNCTHINGFOLDER
+FOLDER_START
 for pid in "${PIDS[@]}"; do
   echo "    <device id=\"${pid}\" />" >>"${SYNCTHING_CONF_DIR}/config.xml"
 done
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNCTHINGFOLDEREND'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_END'
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
     <rescanIntervalS>1</rescanIntervalS>
   </folder>
-SYNCTHINGFOLDEREND
-# letsencrypt folder
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNCTHINGLETS'
+FOLDER_END
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_START'
   <folder id="letsencrypt" label="letsencrypt" path="${LETSENCRYPT_DIR}" type="sendreceive">
-SYNCTHINGLETS
+FOLDER_START
 for pid in "${PIDS[@]}"; do
   echo "    <device id=\"${pid}\" />" >>"${SYNCTHING_CONF_DIR}/config.xml"
 done
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNCTHINGLETSEND'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_END'
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
     <rescanIntervalS>1</rescanIntervalS>
   </folder>
 </configuration>
-SYNCTHINGLETSEND
+FOLDER_END
 
-# 12) Generate README.md
+# 13) Generate README.md
 echo "==> Generating README.md..."
 cat >README.md <<'README'
 # Cloud-Proxy HA Setup
@@ -254,9 +283,9 @@ Install these packages on each host:
 
 ## Environment Variables (Examples)
 
-All required values can be set as environment variables before running the script. Below are both inline and `.env` examples:
+All required values can be set as environment variables before running the script. Use inline exports or a `.env` file:
 
-### Exporting inline
+### Inline Exports
 ```bash
 export HOST_IP="10.0.0.2"
 export PEER_IPS="10.0.0.2,10.0.0.3"
@@ -266,7 +295,7 @@ export PRIORITY="150"              # MASTER > BACKUP
 export SYNCTHING_DEVICE_ID="ABC123DEVICEID"
 export SYNCTHING_PEER_DEVICE_IDS="DEF456,GHI789"
 
-# Optional (will default if unset):
+# Optional overrides:
 export DB_ROOT_PASS="myRootPass"
 export DB_PORT="3306"
 export DB_USER="npm"
@@ -279,10 +308,7 @@ chmod +x setup-ha.sh
 ./setup-ha.sh
 ```
 
-### Using a `.env` file
-
-Create a file named `.env` in the repo root with:
-
+### `.env` File
 ```dotenv
 HOST_IP=10.0.0.2
 PEER_IPS=10.0.0.2,10.0.0.3
@@ -302,8 +328,7 @@ CLUSTER_NAME=npm-galera
 XTRABACKUP_PASSWORD=xbckPass
 ```
 
-Then run:
-
+Then:
 ```bash
 export $(grep -v '^#' .env | xargs)
 chmod +x setup-ha.sh
@@ -314,26 +339,25 @@ chmod +x setup-ha.sh
 
 ## Environment Variable Reference
 
-| Variable                      | Description                                                              |
-| ----------------------------- | ------------------------------------------------------------------------ |
-| `HOST_IP`                     | this host’s IP                                                           |
-| `PEER_IPS`                    | comma-separated peer IPs                                                 |
-| `FLOATING_IP`                 | VRRP floating IP                                                         |
-| `ROLE`                        | Keepalived role (`MASTER` or `BACKUP`)                                   |
-| `PRIORITY`                    | VRRP priority (higher wins, e.g., 150 for MASTER, 100 for BACKUP)        |
-| `SYNCTHING_DEVICE_ID`         | this host’s Syncthing Device ID                                          |
-| `SYNCTHING_PEER_DEVICE_IDS`   | comma-separated peer Syncthing Device IDs                                |
-| `DB_ROOT_PASS`                | MariaDB root password (required)                                         |
-| `DB_PORT`                     | MariaDB port for local binding (default: 3306)                           |
-| `DB_USER`                     | MariaDB user name (required)                                             |
-| `DB_USER_PASS`                | MariaDB user password (required)                                         |
-| `DB_NAME`                     | MariaDB database name (required)                                         |
-| `CLUSTER_NAME`                | Galera cluster name (required)                                           |
-| `XTRABACKUP_PASSWORD`         | XtraBackup password for SST (required)                                   |
-| `LETSENCRYPT_DIR`             | path to Let’s Encrypt data (required)                                    |
-| `PUID`                        | user ID for NPM container (e.g., 1000)                                   |
-| `PGID`                        | group ID for NPM container (e.g., 1000)                                  |
-| `DB_PORT`                     | MariaDB port for local binding (default: 3306)                           |
+| Variable                    | Description                                                |
+| --------------------------- | ---------------------------------------------------------- |
+| `HOST_IP`                   | this host’s IP                                             |
+| `PEER_IPS`                  | comma-separated peer IPs                                   |
+| `FLOATING_IP`               | floating IP for VRRP                                       |
+| `ROLE`                      | Keepalived role (`MASTER` or `BACKUP`)                     |
+| `PRIORITY`                  | VRRP priority (150=MASTER,100=BACKUP)                      |
+| `SYNCTHING_DEVICE_ID`       | this host’s Syncthing Device ID                            |
+| `SYNCTHING_PEER_DEVICE_IDS` | comma-separated peer Syncthing Device IDs                 |
+| `DB_ROOT_PASS`              | MariaDB root password (required)                           |
+| `DB_PORT`                   | MariaDB port for local binding (default: 3306)             |
+| `DB_USER`                   | MariaDB user name (required)                               |
+| `DB_USER_PASS`              | MariaDB user password (required)                           |
+| `DB_NAME`                   | MariaDB database name (required)                           |
+| `CLUSTER_NAME`              | Galera cluster name (required)                             |
+| `XTRABACKUP_PASSWORD`       | XtraBackup password (required)                             |
+| `LETSENCRYPT_DIR`           | path to Let’s Encrypt data (required)                      |
+| `PUID`                      | NPM container user ID                                      |
+| `PGID`                      | NPM container group ID                                     |
 
 ---
 
@@ -343,7 +367,7 @@ chmod +x setup-ha.sh
 ```bash
 docker-compose ps
 docker-compose logs npm-app
-docker-compose logs npm-db
+make logs npm-db
 ```
 
 ### Keepalived
