@@ -157,8 +157,8 @@ volumes:
 DOCKERCOMPOSE
 
 # 9) Start HA stack
-echo "==> Starting Docker Compose stack..."
-docker-compose up -d
+echo "==> Starting HA stack..."
+docker compose up -d
 systemctl restart keepalived
 systemctl restart syncthing@root
 
@@ -274,7 +274,7 @@ Install these packages on each host:
 3. **Bring up the HA stack**:
 
    ```bash
-   docker-compose up -d
+   docker compose up -d
    systemctl restart keepalived
    systemctl restart syncthing@root
    ```
@@ -365,9 +365,9 @@ chmod +x setup-ha.sh
 
 ### Docker Compose
 ```bash
-docker-compose ps
-docker-compose logs npm-app
-make logs npm-db
+docker compose ps
+docker compose logs npm-app
+docker compose logs npm-db
 ```
 
 ### Keepalived
