@@ -16,7 +16,7 @@ set -euo pipefail
 # 1) Prompt for required variables if unset
 vars=(HOST_IP PEER_IPS FLOATING_IP ROLE PRIORITY SYNCTHING_DEVICE_ID SYNCTHING_PEER_DEVICE_IDS
   DB_ROOT_PASS DB_PORT DB_USER DB_USER_PASS DB_NAME CLUSTER_NAME XTRABACKUP_PASSWORD
-  LETSENCRYPT_DIR PUID PGID)
+  LETSENCRYPT_DIR PUID PGID DATA_DIR)
 prompts=(
   "this host’s IP (e.g. 10.0.0.2)",
   "comma-separated peer IPs (e.g. 10.0.0.2,10.0.0.3)",
@@ -34,7 +34,8 @@ prompts=(
   "XtraBackup password for SST (required)",
   "host path to Let’s Encrypt data (e.g. /etc/letsencrypt)",
   "user ID for NPM container (e.g. 1000)",
-  "group ID for NPM container (e.g. 1000)"
+  "group ID for NPM container (e.g. 1000)",
+  "path for npm-data sync (e.g. /opt/npm-data)"
 )
 for i in "${!vars[@]}"; do
   var=${vars[i]}
@@ -46,7 +47,7 @@ for i in "${!vars[@]}"; do
 done
 
 # 2) Define constant paths
-DATA_DIR="/opt/npm-data"
+: "DATA_DIR=$DATA_DIR"
 MYSQL_CONF_DIR="/etc/mysql/conf.d"
 KEEPALIVED_CONF_DIR="/etc/keepalived"
 SYNCTHING_CONF_DIR="/root/.config/syncthing"
@@ -103,6 +104,7 @@ XTRABACKUP_PASSWORD=${XTRABACKUP_PASSWORD}
 LETSENCRYPT_DIR=${LETSENCRYPT_DIR}
 PUID=${PUID}
 PGID=${PGID}
+DATA_DIR=${DATA_DIR}
 EOF
 
 # 8) Generate docker-compose.yml using .env
@@ -201,31 +203,31 @@ cat >"${SYNCTHING_CONF_DIR}/config.xml" <<'SYNC'
   <device id="${SYNCTHING_DEVICE_ID}" name="$(hostname)" compression="metadata" introducer="false" />
 SYNC
 IFS=',' read -ra PIDS <<<"${SYNCTHING_PEER_DEVICE_IDS}"
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_START'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER'
   <folder id="npm-data" label="npm-data" path="${DATA_DIR}" type="sendreceive">
-FOLDER_START
+FOLDER
 for pid in "${PIDS[@]}"; do
   echo "    <device id=\"${pid}\" />" >>"${SYNCTHING_CONF_DIR}/config.xml"
 done
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_END'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER'
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
     <rescanIntervalS>1</rescanIntervalS>
   </folder>
-FOLDER_END
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_START'
+FOLDER
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER'
   <folder id="letsencrypt" label="letsencrypt" path="${LETSENCRYPT_DIR}" type="sendreceive">
-FOLDER_START
+FOLDER
 for pid in "${PIDS[@]}"; do
   echo "    <device id=\"${pid}\" />" >>"${SYNCTHING_CONF_DIR}/config.xml"
 done
-cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER_END'
+cat >>"${SYNCTHING_CONF_DIR}/config.xml" <<'FOLDER'
     <ignoreDelete>false</ignoreDelete>
     <fsWatcherEnabled>true</fsWatcherEnabled>
     <rescanIntervalS>1</rescanIntervalS>
   </folder>
 </configuration>
-FOLDER_END
+FOLDER
 
 # 13) Generate README.md
 echo "==> Generating README.md..."
@@ -303,6 +305,7 @@ export DB_USER_PASS="npmPass"
 export DB_NAME="npm"
 export CLUSTER_NAME="npm-galera"
 export XTRABACKUP_PASSWORD="xbckPass"
+export DATA_DIR="/opt/npm-data"
 
 chmod +x setup-ha.sh
 ./setup-ha.sh
@@ -326,6 +329,7 @@ DB_USER_PASS=npmPass
 DB_NAME=npm
 CLUSTER_NAME=npm-galera
 XTRABACKUP_PASSWORD=xbckPass
+DATA_DIR=/opt/npm-data
 ```
 
 Then:
@@ -347,7 +351,7 @@ chmod +x setup-ha.sh
 | `ROLE`                      | Keepalived role (`MASTER` or `BACKUP`)                     |
 | `PRIORITY`                  | VRRP priority (150=MASTER,100=BACKUP)                      |
 | `SYNCTHING_DEVICE_ID`       | this host’s Syncthing Device ID                            |
-| `SYNCTHING_PEER_DEVICE_IDS` | comma-separated peer Syncthing Device IDs                 |
+| `SYNCTHING_PEER_DEVICE_IDS` | comma-separated peer Syncthing Device IDs                  |
 | `DB_ROOT_PASS`              | MariaDB root password (required)                           |
 | `DB_PORT`                   | MariaDB port for local binding (default: 3306)             |
 | `DB_USER`                   | MariaDB user name (required)                               |
@@ -358,6 +362,7 @@ chmod +x setup-ha.sh
 | `LETSENCRYPT_DIR`           | path to Let’s Encrypt data (required)                      |
 | `PUID`                      | NPM container user ID                                      |
 | `PGID`                      | NPM container group ID                                     |
+| `DATA_DIR`                  | path for npm data sync                                     |
 
 ---
 
